@@ -51,12 +51,6 @@ Franchise => Tạo hệ sinh thái Shopping Food
 	=> Register vào hệ thống (Subscription) * => Shopee Food/Grab Food/Booking đi chợ hộ
 	=> Cửa hàng không đăng kí (Suggestion) => Suggest => khách tự đi mua
 
-MVP
-=> Quản lý kho đơn giản: Nguyên liệu + Công thức + Giá sàn/niêm yết
-=> Gợi ý thực đơn đơn giản: Dựa trên tồn kho, ràng buộc cơ bản như chay, mặn, tôn giáo (chưa cần ngân sách hay HSD)
-=> Tạo menu thì: Khách create 1 list menu cho 1 tuần => Thứ cần mua + Tồn kho
-=> Tập trung 1 user + 1 warehouse
-
 Stages booking/Create Menu
 1 => Create Menu
 2 => UI/UX Suggestion Pick + Add to Menu (Complex)
@@ -648,7 +642,7 @@ Medical dietary restrictions
 Allergy management
 Medication interactions
 Doctor recommendations integration
-25. Payment Management
+1.  Payment Management
 25.1 Cổng thanh toán đa dạng
 25.2 Quản lý subscription và billing
 25.3 Bảo mật thanh toán

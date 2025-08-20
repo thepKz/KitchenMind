@@ -1,131 +1,104 @@
-Nguyên tắc cốt lõi (bạn nên thuộc lòng)
+# Cấu hình README & Checklist Microservice
 
-Một service = một database (ownership rõ ràng).
-Không share DB giữa các service. Mọi truy cập dữ liệu phải đi qua API/Event của service chủ sở hữu.
+Tài liệu này là checklist và hướng dẫn cấu hình thực tiễn cho kiến trúc microservice, dùng làm README hoặc tài liệu onboarding cho team.
 
-Tránh join cross-service.
-Thay vì join trực tiếp, nhân bản dữ liệu chỉ-đọc bằng event (CDC/outbox) để phục vụ query cục bộ.
+---
 
-Chấp nhận eventual consistency.
-Đừng cố đồng bộ “ngay tức thì” giữa các service. Dùng Saga/Process Manager để điều phối quy trình nhiều bước.
+## Nguyên tắc cốt lõi
 
-Giao tiếp bất đồng bộ là mặc định.
-Sự cố mạng là bình thường: thiết kế idempotency, retry với backoff, dead-letter queue.
+- **Một service, một database**  
+  Mỗi service sở hữu riêng database của mình. Không chia sẻ DB giữa các service. Mọi truy cập dữ liệu phải đi qua API hoặc event của service chủ sở hữu.
 
-Schema change là vĩnh viễn.
-Version hoá schema & event; thay đổi theo kiểu expand → migrate → contract (backward compatible).
+- **Không join cross-service**  
+  Tránh join trực tiếp giữa các service. Thay vào đó, nhân bản dữ liệu chỉ-đọc qua event (CDC/outbox) để phục vụ truy vấn cục bộ.
 
-Quan trắc & khả năng khôi phục > hiệu năng tức thì.
-Log có tương quan traceId, metrics, alerting, backup & point-in-time recovery trước khi go-live.
+- **Chấp nhận eventual consistency**  
+  Không cố gắng đồng bộ ngay lập tức giữa các service. Sử dụng Saga hoặc Process Manager để điều phối các quy trình nhiều bước.
 
-Tách OLTP và OLAP.
-Báo cáo/analytics đi qua read models / data warehouse (CDC), không query trực tiếp OLTP của service.
+- **Giao tiếp bất đồng bộ là mặc định**  
+  Sự cố mạng là bình thường. Thiết kế idempotency, retry với backoff, sử dụng dead-letter queue.
 
-Checklist thực hành (ngắn gọn mà “đủ đô”)
-Thiết kế biên giới dữ liệu
+- **Thay đổi schema là vĩnh viễn**  
+  Luôn version hóa schema & event. Thay đổi theo quy trình expand → migrate → contract để đảm bảo backward compatibility.
 
-Vẽ bounded contexts; chỉ ra aggregate nào là truth source.
+- **Quan trắc & khả năng khôi phục quan trọng hơn hiệu năng tức thì**  
+  Log có traceId, metrics, alerting, backup & point-in-time recovery phải được thiết lập trước khi go-live.
 
-Quy ước ID: UUID/ULID (sắp xếp tốt), không lộ auto-increment qua ranh giới.
+- **Tách biệt OLTP và OLAP**  
+  Báo cáo/analytics đi qua read models hoặc data warehouse (CDC), không truy vấn trực tiếp OLTP của service.
 
-Time: lưu UTC, có created_at, updated_at, version (optimistic locking).
+---
 
-Soft delete nếu có nhu cầu khôi phục/audit; hoặc tách bảng *_audit.
+## Checklist thực hành
 
-Giao tiếp & đồng bộ
+### Thiết kế biên giới dữ liệu
+- Vẽ bounded context, xác định aggregate là truth source.
+- ID: dùng UUID/ULID, không lộ auto-increment qua ranh giới.
+- Thời gian: lưu UTC, có created_at, updated_at, version (optimistic locking).
+- Soft delete nếu cần khôi phục/audit, hoặc tách bảng *_audit.
 
-Outbox pattern: ghi sự kiện cùng transaction với thay đổi dữ liệu → worker đẩy ra broker.
-Ví dụ bảng outbox:
+### Giao tiếp & đồng bộ
+- Outbox pattern: ghi sự kiện cùng transaction với thay đổi dữ liệu, worker đẩy ra broker.
+  - Ví dụ bảng outbox:  
+    `outbox(id, aggregate_id, type, payload_json, occurred_at, processed_at null)`
+- Inbox/Idempotency ở consumer: lưu message_id, processed_at để chống xử lý trùng.
+- Dùng schema registry (Avro/Protobuf/JSON-Schema) + event versioning (chỉ thêm field, không đổi nghĩa cũ).
 
-outbox(id, aggregate_id, type, payload_json, occurred_at, processed_at null)
+### Giao dịch phân tán
+- Saga (choreography/orchestration): mỗi bước có compensation.
+- Tránh 2PC. Ghi rõ state machine của quy trình dài (pending → confirmed → failed…).
 
+### Truy vấn & hiệu năng
+- CQRS nhẹ: write model tối ưu ghi, read model tối ưu đọc/denormalize.
+- Index theo access pattern thực tế; đọc nhiều thì tách read replica.
+- Caching: cache-aside, phải có TTL & chiến lược invalidation (ưu tiên event-driven).
+- Phân trang: dùng keyset/created_at + id thay vì offset lớn.
 
-Inbox/Idempotency ở consumer: lưu message_id, processed_at để chống xử lý trùng.
+### Di trú & phát hành
+- Migration không phá vỡ:
+  - Thêm cột/bảng mới (read-path ẩn)
+  - Code ghi song song (dual-write an toàn bằng outbox)
+  - Backfill
+  - Chuyển read-path
+  - Xoá phần cũ
+- Tự động hóa migration và roll-back plan (đặc biệt khi thay đổi dữ liệu).
 
-Schema registry (Avro/Protobuf/JSON-Schema) + event versioning (thêm field, không đổi nghĩa cũ).
+### An toàn & tuân thủ
+- Least privilege: mỗi service có tài khoản DB riêng, chỉ cấp quyền cần thiết.
+- Lưu secrets trong vault, không commit vào code.
+- Mask/Encrypt PII, audit log truy cập.
+- Multi-tenant:  
+  - Ít tenant: schema-per-tenant (cô lập tốt)  
+  - Nhiều tenant: row-level (rẻ)  
+  - Cô lập mạnh nhất: DB-per-tenant
 
-Giao dịch phân tán
+### Vận hành & SRE
+- Connection pooling (ví dụ: pgbouncer cho Postgres), tránh cạn kết nối khi burst.
+- Observability: log có trace_id, metrics (latency, error rate, consumer lag), distributed tracing.
+- Runbook: xử lý nghẽn queue, poison message, backfill event, khôi phục từ backup.
+- Test: contract test giữa producer/consumer, fixture dữ liệu, test chaos (mất partition, chậm network…).
 
-Saga (choreography/orchestration): mỗi bước có compensation.
+---
 
-Tránh 2PC. Ghi rõ state machine của quy trình dài (pending → confirmed → failed…).
+## Mantra & lưu ý thực chiến
 
-Truy vấn & hiệu năng
+- “Một service, một sự thật. Không mượn cơm nhà người khác.”
+- “Không share database, share sự kiện.”
+- “Exactly-once là ước mơ; at-least-once + idempotent là thực tế.”
+- “Bạn không join qua mạng—bạn replicate.”
+- “Schema thay đổi thì code hai bên đều đau—hãy version hoá.”
+- “CAP không phải triết học—hãy chọn trade-off cho từng use case.”
+- “Backup mà chưa thử restore thì coi như chưa có.”
+- “Đừng tối ưu sớm—tối ưu đường chẩn đoán trước.”
+- “Báo cáo là hệ thống khác. Đừng bòn rút OLTP.”
+- “Khi nghi ngờ, ghi thêm event. Lịch sử cứu bạn.”
 
-CQRS nhẹ: write model tối ưu ghi; read model tối ưu đọc/denormalize.
+---
 
-Index theo access pattern thực tế; đọc nhiều thì tách read replica.
+## Khung xương tối thiểu cho một service
 
-Caching: cache-aside; phải có TTL & chiến lược invalidation (event-driven càng tốt).
-
-Phân trang: keyset/created_at + id thay vì offset lớn.
-
-Di trú & phát hành
-
-Migration không phá vỡ:
-
-Thêm cột/bảng mới (read-path ẩn),
-
-Code ghi song song (dual-write an toàn bằng outbox),
-
-Backfill,
-
-Chuyển read-path,
-
-Xoá phần cũ.
-
-Tự động hoá migration và roll-back plan (đặc biệt khi thay đổi dữ liệu).
-
-An toàn & tuân thủ
-
-Least privilege: tài khoản DB per service, chỉ quyền cần thiết.
-
-Secrets trong vault, không commit.
-
-Mask/Encrypt PII, audit log truy cập.
-
-Multi-tenant: schema-per-tenant (ít tenant, cô lập tốt), row-level (nhiều tenant, rẻ), hoặc DB-per-tenant (cô lập mạnh nhất).
-
-Vận hành & SRE
-
-Connection pooling (PG: pgbouncer), tránh cạn kết nối khi burst.
-
-Observability: log có trace_id, metrics (latency, error rate, consumer lag), distributed tracing.
-
-Runbooks: nghẽn queue, poison message, backfill event, khôi phục từ backup.
-
-Test: contract test giữa producer/consumer, fixture dữ liệu, test chaos (mất 1 partition, chậm network…).
-
-Những “câu nói của tiền bối” (mantra đáng nhớ)
-
-“Một service, một sự thật. Không mượn cơm nhà người khác.”
-
-“Không share database, share sự kiện.”
-
-“Exactly-once là ước mơ; at-least-once + idempotent là thực tế.”
-
-“Bạn không join qua mạng—bạn replicate.”
-
-“Schema thay đổi thì code hai bên đều đau—hãy version hoá.”
-
-“CAP không phải triết học—hãy chọn trade-off cho từng use case.”
-
-“Backup mà chưa thử restore thì coi như chưa có.”
-
-“Đừng tối ưu sớm—tối ưu đường chẩn đoán trước.”
-
-“Báo cáo là hệ thống khác. Đừng bòn rút OLTP.”
-
-“Khi nghi ngờ, ghi thêm event. Lịch sử cứu bạn.”
-
-Mẫu “khung xương” tối thiểu cho một service (gợi ý)
-
-Bảng domain có id (ULID), version, created_at, updated_at.
-
-outbox + worker đẩy event.
-
-Consumer có inbox(processed_message_id, processed_at).
-
-Config retry (exponential backoff), DLQ, metric cho consumer lag.
-
-Migration có script forward + rollback, CI chạy trước deploy.
+- Bảng domain có id (ULID), version, created_at, updated_at.
+- Outbox + worker đẩy event.
+- Consumer có inbox(processed_message_id, processed_at).
+- Config retry (exponential backoff), DLQ, metric cho consumer lag.
+- Migration có script forward + rollback, CI chạy trước deploy.

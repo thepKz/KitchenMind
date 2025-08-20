@@ -1,65 +1,27 @@
-Outbox Pattern trong microservices là một giải pháp đảm bảo tính nhất quán dữ liệu (data consistency) khi bạn vừa cần ghi dữ liệu vào database, vừa cần phát sự kiện (event) ra message broker (Kafka, RabbitMQ, v.v.).
+# Outbox Pattern trong Microservices
 
-Vấn đề
+Outbox Pattern là một giải pháp phổ biến giúp đảm bảo **tính nhất quán dữ liệu** (data consistency) khi một service vừa cần ghi dữ liệu vào database, vừa cần phát sự kiện (event) ra message broker (Kafka, RabbitMQ, v.v.).
 
-Trong hệ thống microservices, một service thường:
+## 1. Vấn đề thường gặp
 
-Lưu dữ liệu vào database (transactional DB).
+Trong hệ thống microservices, một service thường phải thực hiện hai bước:
+- Ghi dữ liệu vào database (transactional DB)
+- Gửi event sang message broker để các service khác xử lý tiếp
 
-Gửi event sang message broker để các service khác xử lý tiếp.
+Nếu hai bước này **không được thực hiện atomically** (trong cùng một transaction), có thể xảy ra các lỗi:
+- Ghi DB thành công nhưng gửi event thất bại → service khác không biết có thay đổi
+- Gửi event thành công nhưng DB rollback → phát event “ma” (không đúng thực tế)
 
-Nếu 2 bước này không được xử lý atomically thì có thể gặp lỗi:
+Điều này dẫn đến **mất đồng bộ** giữa database và event stream.
 
-Lưu DB thành công nhưng gửi event thất bại → service khác không biết có thay đổi.
+## 2. Giải pháp: Outbox Pattern
 
-Gửi event thành công nhưng DB rollback → phát event “ma”.
+**Outbox Pattern** giải quyết vấn đề trên bằng cách:
 
-Điều này tạo ra tình trạng mất đồng bộ giữa DB và event stream.
+- **Ghi dữ liệu chính và event vào cùng một transaction** trong database (thường là một bảng `outbox`)
+- Một process/worker riêng biệt (gọi là **Outbox Relay**) sẽ đọc các event từ bảng outbox và gửi sang message broker
+- Khi gửi thành công, event trong bảng outbox sẽ được đánh dấu là đã xử lý (`processed`)
 
-Giải pháp Outbox Pattern
+**Lợi ích:** Event luôn đồng bộ với DB vì chúng được commit trong cùng transaction.
 
-Thay vì ghi trực tiếp vào message broker, ta:
-
-Transaction duy nhất: Ghi dữ liệu chính và event vào cùng database (table “outbox”).
-
-Một process/worker riêng (Outbox Relay) đọc từ bảng outbox, gửi event sang message broker.
-
-Khi gửi thành công, record trong outbox được đánh dấu “processed”.
-
-👉 Nhờ vậy, event luôn đồng bộ với DB vì chúng được commit trong cùng transaction.
-
-Kiến trúc tổng quan
-Service A
- ├── Transaction DB
- │     ├── business_table (order, user, v.v.)
- │     └── outbox_table (pending events)
- └── Outbox Relay
-        ├── đọc outbox_table
-        ├── gửi message -> Kafka/RabbitMQ
-        └── đánh dấu đã gửi
-
-Ưu điểm
-
-Đảm bảo atomicity giữa DB và event (không lo mất đồng bộ).
-
-Không phụ thuộc vào message broker hỗ trợ XA transaction.
-
-Có thể retry an toàn nếu gửi event thất bại.
-
-Nhược điểm
-
-Cần thêm cơ chế dọn dẹp (cleanup) bảng outbox.
-
-Độ trễ cao hơn chút (event không phát ngay lập tức, mà qua relay).
-
-Tăng thêm phức tạp trong hệ thống.
-
-So sánh với Transactional Outbox + CDC
-
-Transactional Outbox (classic): app ghi vào outbox, relay đọc và gửi đi.
-
-CDC (Change Data Capture): dùng Debezium hoặc binlog listener để phát hiện thay đổi ở outbox table và đẩy sự kiện đi → giảm code nhưng cần hạ tầng phức tạp hơn.
-
-👉 Tóm lại: Outbox Pattern là cách phổ biến để giải quyết bài toán "làm sao phát event mà vẫn đảm bảo dữ liệu và event luôn đồng bộ" trong microservices.
-
-Bạn có muốn mình vẽ sequence diagram minh họa dòng chảy (DB + Outbox + Message Broker) cho dễ hình dung không?
+## 3. Kiến trúc tổng quan
